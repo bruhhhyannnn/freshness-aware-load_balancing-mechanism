@@ -1,0 +1,57 @@
+{
+  "scenarios": {
+    "staleness": "grid",
+    "missing_report": {
+      "load": 0.8,
+      "staleness": 0.5,
+      "event": "mute",
+      "duration": 10.0
+    },
+    "slow_server": {
+      "load": 0.8,
+      "staleness": 0.5,
+      "event": "slow",
+      "duration": 20.0,
+      "factor": 2.0
+    },
+    "shared_snapshot": {
+      "load": 0.9,
+      "staleness": 1.0,
+      "balancers": 4
+    }
+  },
+  "event_server": 2,
+  "event_start_s": 20.0,
+  "falb_a1": 0.1,
+  "falb_a2": 2.0,
+  "strategies": [
+    "round_robin",
+    "random",
+    "least_loaded",
+    "p2c",
+    "falb"
+  ],
+  "staleness_s": [
+    0.0,
+    0.1,
+    0.5,
+    1.0,
+    2.0,
+    5.0
+  ],
+  "loads": [
+    0.5,
+    0.8,
+    0.9
+  ],
+  "reps": 3,
+  "warmup_s": 10.0,
+  "duration_s": 60.0,
+  "timeout_s": 30.0,
+  "n_servers": 5,
+  "mean_service_ms": 20.0,
+  "python": "3.12.6 (tags/v3.12.6:a4a2d2b, Sep  6 2024, 20:11:23) [MSC v.1940 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "started_at": "2026-10-12 23:14:51"
+}
