@@ -1,0 +1,6 @@
+# Python 3.11 or newer. The servers and load balancer use only the standard
+# library (asyncio); these packages are for the load generator and analysis.
+numpy>=1.26
+pandas>=2.0
+matplotlib>=3.8
+pytest>=8.0

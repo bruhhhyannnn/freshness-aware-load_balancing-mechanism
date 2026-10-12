@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# Per-request raw data is large; the summary CSVs and figures are small.
+results/*/raw/
+results/*/logs/
+# Quick smoke-test runs and the sweep's progress log are not part of the results.
+results/*_quick/
+results/*/sweep_progress.log
