@@ -140,7 +140,8 @@ class PowerOfD(Strategy):
 
     def __init__(self, n_servers: int, rng: random.Random | None = None, d: int = 2):
         super().__init__(n_servers, rng)
-        if not 1 <= d <= n_servers:
+        # d = 2 also works with one server: both "choices" are that server.
+        if not 1 <= d <= max(n_servers, 2):
             raise ValueError(f"d must be between 1 and {n_servers}, got {d}")
         self.d = d
         self.name = f"p{d}c"

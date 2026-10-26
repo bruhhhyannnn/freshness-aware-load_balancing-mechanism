@@ -124,9 +124,9 @@ class LoadBalancer:
         set_nodelay(writer)
         try:
             while True:
-                kind, req_id, _ = await read_frame(reader)
+                kind, req_id, payload = await read_frame(reader)
                 if kind == Msg.REQUEST:
-                    self._route(writer, req_id)
+                    self._route(writer, req_id, payload)
                 elif kind == Msg.STATS:
                     writer.write(encode(Msg.STATS_REPLY, req_id, json.dumps(self.stats()).encode()))
                 elif kind == Msg.RESET:
@@ -137,23 +137,23 @@ class LoadBalancer:
         finally:
             writer.close()
 
-    def _route(self, writer: asyncio.StreamWriter, req_id: int) -> None:
+    def _route(self, writer: asyncio.StreamWriter, req_id: int, payload: bytes = b"") -> None:
         if self.strategy.uses_load and self.staleness == 0:
-            self._spawn(self._route_fresh(writer, req_id))
+            self._spawn(self._route_fresh(writer, req_id, payload))
             return
         began = time.perf_counter_ns()
         candidates = self.strategy.candidates()
         target = self.strategy.pick(candidates, time.time())
         self._decided(began)
-        self._forward(target, writer, req_id)
+        self._forward(target, writer, req_id, payload)
 
-    async def _route_fresh(self, writer, req_id) -> None:
+    async def _route_fresh(self, writer, req_id, payload) -> None:
         candidates = self.strategy.candidates()
         await asyncio.gather(*(self._probe(i) for i in candidates))
         began = time.perf_counter_ns()
         target = self.strategy.pick(candidates, time.time())
         self._decided(began)
-        self._forward(target, writer, req_id)
+        self._forward(target, writer, req_id, payload)
 
     def _decided(self, began_ns: int) -> None:
         took = time.perf_counter_ns() - began_ns
@@ -162,10 +162,11 @@ class LoadBalancer:
         if took > self._decision_max_ns:
             self._decision_max_ns = took
 
-    def _forward(self, i: int, writer: asyncio.StreamWriter, req_id: int) -> None:
+    def _forward(self, i: int, writer: asyncio.StreamWriter, req_id: int,
+                 payload: bytes = b"") -> None:
         self.dispatched[i] += 1
         self.strategy.on_dispatch(i, time.time())
-        reply = self.links[i].send(Msg.REQUEST)
+        reply = self.links[i].send(Msg.REQUEST, payload)   # payload: the task class, if any
         reply.add_done_callback(functools.partial(_relay, writer, req_id))
 
     def stats(self) -> dict:

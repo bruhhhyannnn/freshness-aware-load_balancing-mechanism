@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config, loadgen, metrics
+from . import config, loadgen, metrics, tasks
 from .platform_tuning import run
 from .protocol import Link, Msg
 
@@ -56,6 +56,11 @@ class RunConfig:
     timeout: float = config.TIMEOUT_S
     a1: float = config.FALB_A1
     a2: float = config.FALB_A2
+    # "exponential" (the case study), or "classes": fast / moderate / slow
+    # requests replaying the times measured in ``tasks_file`` (lbstudy.tasks);
+    # set ``mean_service`` to that file's mean so the load level is right.
+    workload: str = "exponential"
+    tasks_file: str = field(default="", compare=False)
     host: str = field(default=config.HOST, compare=False)
 
     @classmethod
@@ -79,7 +84,14 @@ class RunConfig:
     @property
     def run_id(self) -> str:
         prefix = "" if self.scenario == "staleness" else f"{self.scenario}_"
-        return f"{prefix}{self.strategy}_T{self.staleness:g}_L{self.load:g}_r{self.rep}"
+        if self.workload != "exponential":
+            prefix = f"{self.workload}_{prefix}"
+        nodes = "" if self.n_servers == config.N_SERVERS else f"_N{self.n_servers}"
+        return f"{prefix}{self.strategy}_T{self.staleness:g}_L{self.load:g}{nodes}_r{self.rep}"
+
+    @property
+    def classes(self) -> tasks.Workload | None:
+        return tasks.load(self.tasks_file) if self.workload == "classes" else None
 
     def seed(self, purpose: str, *extra) -> int:
         if purpose == "strategy":
@@ -107,9 +119,10 @@ class Testbed:
     def __enter__(self) -> "Testbed":
         cfg = self.cfg
         try:
+            task_args = ["--tasks", cfg.tasks_file] if cfg.workload == "classes" else []
             servers = [self._spawn("lbstudy.server", "--id", i, "--host", cfg.host,
                                    "--port", 0, "--mean-service", cfg.mean_service,
-                                   "--seed", cfg.seed("service", i))
+                                   "--seed", cfg.seed("service", i), *task_args)
                        for i in range(cfg.n_servers)]
             self.server_ports = [_wait_ready(p) for p in servers]
             backends = ",".join(f"{cfg.host}:{p}" for p in self.server_ports)
@@ -172,6 +185,7 @@ async def _drive(cfg: RunConfig, testbed: Testbed):
     balancers = [await Link.open(cfg.host, port) for port in testbed.lb_ports]
     controls = servers + balancers
     event = scenario_event(cfg)
+    workload = cfg.classes
 
     async def start_window() -> None:
         opened = asyncio.get_running_loop().time()
@@ -183,7 +197,7 @@ async def _drive(cfg: RunConfig, testbed: Testbed):
     result = await loadgen.generate(
         cfg.host, testbed.lb_ports, rate=cfg.arrival_rate, duration=cfg.duration,
         warmup=cfg.warmup, timeout=cfg.timeout, seed=cfg.seed("arrivals"),
-        on_window_start=start_window)
+        on_window_start=start_window, classes=workload.shares if workload else None)
 
     replies = await asyncio.gather(*(c.call(Msg.STATS) for c in controls))
     stats = [json.loads(payload) for _, payload in replies]
@@ -206,7 +220,7 @@ def summarize(cfg: RunConfig, result: loadgen.LoadResult, server_stats: list[dic
     max_queues = [s["max_queue"] for s in server_stats]
     row = {
         "scenario": cfg.scenario, "strategy": cfg.strategy, "staleness": cfg.staleness,
-        "load": cfg.load, "rep": cfg.rep, "n_servers": cfg.n_servers,
+        "load": cfg.load, "rep": cfg.rep, "n_servers": cfg.n_servers, "workload": cfg.workload,
         "balancers": cfg.balancers, "mean_service_ms": 1000 * cfg.mean_service,
         "warmup_s": cfg.warmup, "duration_s": cfg.duration, "timeout_s": cfg.timeout,
         "falb_a1": cfg.a1, "falb_a2": cfg.a2,
@@ -235,6 +249,15 @@ def summarize(cfg: RunConfig, result: loadgen.LoadResult, server_stats: list[dic
         during = measured & (result.scheduled >= start) & (result.scheduled < start + cfg.spec["duration"])
         ev = metrics.latency_summary(result.latency[during], cfg.timeout)
         row.update(event_mean_ms=ev["mean_ms"], event_p99_ms=ev["p99_ms"])
+    # Response time of each task class (fast / moderate / slow).
+    for c, name in enumerate(tasks.CLASS_NAMES):
+        sel = measured & (result.task_class == c) if result.task_class is not None else None
+        part = (metrics.latency_summary(result.latency[sel], cfg.timeout)
+                if sel is not None and sel.any() else {})
+        row[f"{name}_n"] = part.get("n_requests", 0)
+        row[f"{name}_mean_ms"] = part.get("mean_ms")
+        row[f"{name}_p99_ms"] = part.get("p99_ms")
+    row.update(metrics.node_summary(server_stats, result.window_start_clock, cfg.duration))
     return row
 
 
@@ -246,11 +269,13 @@ def save_raw(path: Path, cfg: RunConfig, result: loadgen.LoadResult,
         trace = np.asarray(s["trace"], dtype=float).reshape(-1, 2)
         traces[f"trace_t{s['server_id']}"] = trace[:, 0] - result.window_start_unix
         traces[f"trace_q{s['server_id']}"] = trace[:, 1].astype(np.int32)
+    _, busy, _ = metrics.server_timelines(server_stats, result.window_start_clock, cfg.duration)
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         path, scheduled=result.scheduled, latency=result.latency, server=result.server,
         send_lag=result.send_lag, summary=json.dumps(summary),
-        config=json.dumps(asdict(cfg)), **traces)
+        config=json.dumps(asdict(cfg)), task_class=result.task_class,
+        util_per_s=metrics.utilization_per_second(busy).astype(np.float32), **traces)
 
 
 def run_once(cfg: RunConfig, raw_dir: Path | None = None, log_dir: Path | None = None) -> dict:

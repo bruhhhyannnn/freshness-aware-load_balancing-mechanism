@@ -4,3 +4,4 @@ numpy>=1.26
 pandas>=2.0
 matplotlib>=3.8
 pytest>=8.0
+psutil>=5.9        # servers report their own memory and CPU use

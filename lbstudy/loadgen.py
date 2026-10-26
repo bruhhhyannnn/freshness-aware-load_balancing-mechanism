@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import bisect
 import functools
+import itertools
 import math
 import random
 import time
@@ -41,6 +43,8 @@ class LoadResult:
     rate: float
     duration: float
     timeout: float
+    task_class: np.ndarray | None = None    # class index per request; -1 = untagged
+    window_start_clock: float = math.nan    # window start on the shared perf_counter clock
 
     @property
     def measured(self) -> np.ndarray:
@@ -50,17 +54,24 @@ class LoadResult:
 async def generate(host: str, port: int | Sequence[int], rate: float, duration: float,
                    warmup: float = 0.0,
                    timeout: float = config.TIMEOUT_S, seed: int | None = None,
-                   on_window_start: Callable[[], Awaitable[None]] | None = None) -> LoadResult:
+                   on_window_start: Callable[[], Awaitable[None]] | None = None,
+                   classes: Sequence[float] | None = None) -> LoadResult:
     """Send Poisson traffic for ``warmup + duration`` seconds, then drain.
 
     Requests scheduled during the warm-up are sent but not measured. After
     the last send, waits until every measured request is answered or
     ``timeout`` seconds have passed since the end of the window. With
     several balancer ports, each request goes to one of them at random.
+    With ``classes`` (the share of each task class), every request is tagged
+    with a class drawn at random in those shares.
     """
     loop = asyncio.get_running_loop()
     rng = random.Random(seed)
     spread = random.Random(None if seed is None else seed + 1)
+    kinds = random.Random(None if seed is None else seed + 2)
+    cumulative = list(itertools.accumulate(classes)) if classes else None
+    tags = [bytes([c]) for c in range(len(classes))] if classes else None
+    task_class: list[int] = []
     ports = [port] if isinstance(port, int) else list(port)
     links = [await Link.open(host, p) for p in ports]
 
@@ -101,7 +112,14 @@ async def generate(host: str, port: int | Sequence[int], rate: float, duration: 
         server.append(-1)
         lag.append(loop.time() - t)
         link = links[spread.randrange(len(links))] if len(links) > 1 else links[0]
-        reply = link.send(Msg.REQUEST)
+        if cumulative:
+            c = min(bisect.bisect_right(cumulative, kinds.random() * cumulative[-1]),
+                    len(tags) - 1)
+            task_class.append(c)
+            reply = link.send(Msg.REQUEST, tags[c])
+        else:
+            task_class.append(-1)
+            reply = link.send(Msg.REQUEST)
         reply.add_done_callback(functools.partial(on_reply, i))
         if t >= window_start:
             measured_replies.append(reply)
@@ -121,6 +139,8 @@ async def generate(host: str, port: int | Sequence[int], rate: float, duration: 
         send_lag=np.asarray(lag),
         window_start_unix=window_start + unix_offset,
         rate=rate, duration=duration, timeout=timeout,
+        task_class=np.asarray(task_class, dtype=np.int8),
+        window_start_clock=window_start,
     )
 
 

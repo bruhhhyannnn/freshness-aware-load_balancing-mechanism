@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 
-from . import config
+from . import config, tasks
 from .experiment import RunConfig, run_once
 from .strategies import label
 
@@ -51,11 +51,19 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--a1", type=float, default=config.FALB_A1)
     ap.add_argument("--a2", type=float, default=config.FALB_A2)
     ap.add_argument("--rep", type=int, default=0, help="repetition number (selects the seeds)")
+    ap.add_argument("--servers", type=int, default=config.N_SERVERS, help="number of servers")
+    ap.add_argument("--workload", default="exponential", choices=["exponential", "classes"],
+                    help="classes = fast/moderate/slow tasks from --tasks-file")
+    ap.add_argument("--tasks-file", default=str(tasks.DEFAULT_PATH))
     ap.add_argument("--raw-dir", default=None, help="also save per-request data here")
     args = ap.parse_args(argv)
 
     names = config.STRATEGIES if args.strategy == "all" else [args.strategy]
-    common = dict(warmup=args.warmup, timeout=args.timeout, a1=args.a1, a2=args.a2, rep=args.rep)
+    common = dict(warmup=args.warmup, timeout=args.timeout, a1=args.a1, a2=args.a2, rep=args.rep,
+                  n_servers=args.servers, workload=args.workload)
+    if args.workload == "classes":
+        common.update(tasks_file=args.tasks_file,
+                      mean_service=tasks.load(args.tasks_file).mean_service)
     rows = []
     for name in names:
         if args.scenario == "staleness":

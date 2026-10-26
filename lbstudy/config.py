@@ -38,3 +38,20 @@ REPETITIONS = 3
 TIMEOUT_S = 30.0
 
 HOST = "127.0.0.1"
+
+# Follow-up experiment ("nodes" plan): fast / moderate / slow tasks, per-server
+# utilization and memory, and more servers. Each task compresses a block of
+# text of the given size; ``python -m lbstudy.tasks`` times them on this
+# computer, and the servers replay those times.
+TASK_CLASSES = (            # (name, share of requests, payload size in KB)
+    ("fast", 0.6, 128),
+    ("moderate", 0.3, 512),
+    ("slow", 0.1, 2048),
+)
+NODES_LOAD = 0.9                        # fraction of total capacity
+NODES_STALENESS_S = STALENESS_S         # the staleness grid, with 5 servers
+# The scaling grid, at T = NODES_SCALE_T. On the development laptop the testbed
+# stayed accurate up to 150 servers (~8,300 requests/s through one balancer);
+# at 250 the load generator fell up to 22 ms behind and at 400 up to 200 ms.
+NODE_COUNTS = (1, 2, 5, 10, 20, 50, 100, 150)
+NODES_SCALE_T = 1.0

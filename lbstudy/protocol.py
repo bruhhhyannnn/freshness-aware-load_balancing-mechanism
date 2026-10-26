@@ -35,7 +35,8 @@ STATUS = struct.Struct("!IdQd")
 
 
 class Msg(IntEnum):
-    REQUEST = 1        # client -> balancer -> server: process one job
+    REQUEST = 1        # client -> balancer -> server: process one job; payload is
+                       # empty or one byte naming the task class (lbstudy.tasks)
     RESPONSE = 2       # server -> balancer -> client; payload: server id (u16)
     STATUS = 3         # balancer -> server: report your current queue length
     STATUS_REPLY = 4   # payload: ``STATUS`` (queue, time, completed, busy)
