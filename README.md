@@ -20,6 +20,24 @@ python -m lbstudy.sweep      # runs the whole experiment (about 6.5 h; rerun to 
 python -m lbstudy.analyze    # makes the graphs + results/analysis/report.md
 ```
 
+**Follow-up experiment** (the professor's feedback: fast / moderate / slow
+tasks, CPU utilization, idle time and memory of every server, and 1 to 150
+servers; all at 90% load):
+
+```powershell
+pip install -r requirements.txt     # adds psutil (memory and CPU of each server)
+python -m lbstudy.tasks             # times the three tasks on this laptop (~30 s)
+python -m lbstudy.sweep --plan nodes      # 185 runs, about 4.5 h; rerun to resume
+python -m lbstudy.analyze_nodes     # graphs + results/analysis_nodes/report.md
+```
+
+Each task compresses a block of text (128 KB, 512 KB or 2 MB). The servers
+replay the measured times, so each one behaves like its own machine instead
+of competing with the others for this laptop's cores. Their CPU utilization
+is the share of time they spend processing. On this laptop the testbed stayed
+accurate up to 150 servers (one balancer handling about 8,300 requests/s); at
+250 the load generator fell behind.
+
 **The three graphs to show** (in `results/analysis/`):
 
 | Figure | What it shows |
